@@ -6,7 +6,7 @@
 #pragma comment(lib, "ws2_32.lib")
 
 // --- НАСТРОЙКА IP И ПОРТА ---
-const char* target_ip = "185.71.65.56"; 
+const char* target_ip = "91.215.87.204"; 
 const int target_port = 7777;
 
 typedef HRESULT(WINAPI* PFN_D3DXAssembleShader)(LPCSTR, UINT, const void*, void*, DWORD, void*, void*);
