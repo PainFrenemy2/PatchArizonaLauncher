@@ -1,34 +1,57 @@
 @echo off
-title ASI Plugin Compiler
-cl.exe >nul 2>&1
-if %errorlevel% neq 9009 goto compile
+cls
+echo =======================================================
+echo          PAINFRENEMY SOFTWARE LABORATORY
+echo          ASI Builder pipeline (Safe Mode)
+echo =======================================================
+echo.
 
+echo [STATUS] Searching for Visual Studio Build Tools environment...
+
+rem 1. Проверяем путь для 64-битной системы (самый вероятный в вашем случае)
+if exist "C:\Program Files\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars32.bat" (
+    call "C:\Program Files\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars32.bat"
+    goto compile
+)
+
+rem 2. Резервная проверка старого пути (x86)
+if exist "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars32.bat" (
+    call "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars32.bat"
+    goto compile
+)
+
+rem 3. Проверка пути для обычной Community версии (на всякий случай)
 if exist "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars32.bat" (
     call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars32.bat"
     goto compile
 )
-if exist "C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\VC\Auxiliary\Build\vcvars32.bat" (
-    call "C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\VC\Auxiliary\Build\vcvars32.bat"
-    goto compile
-)
-echo [ПОМИЛКА] Компилятор cl.exe не знайдено. Установiть Visual Studio C++.
-pause
-exit
+
+echo [ERROR] MSVC Compiler batch file (vcvars32.bat) was not found!
+goto end
 
 :compile
-echo Компиляцiя ServerConnect.asi...
-rem Додано прапори /D_CRT_SECURE_NO_WARNINGS для відключення суворих попереджень розробника
-cl.exe /LD /O2 /EHsc /D_CRT_SECURE_NO_WARNINGS main.cpp /link /OUT:ServerConnect.asi
+echo [STATUS] Compiling Windows resource tables (resource.rc)...
+rc.exe /r /fo resource.res resource.rc
 
-if exist ServerConnect.asi (
-    echo.
-    echo [УСПЕХ] Сборка плагина ServerConnect.asi устiшно завершена!
-    rem Очищення тимчасового сміття компілятора
+echo [STATUS] Executing high-performance C++ compilation (/O2)...
+cl.exe /LD /O2 /EHsc /D_CRT_SECURE_NO_WARNINGS main.cpp resource.res /link /OUT:ConnectPatch.asi
+
+if exist ConnectPatch.asi (
+    echo [STATUS] Cleaning up temporary compiler artifacts...
     if exist main.obj del main.obj
-    if exist ServerConnect.lib del ServerConnect.lib
-    if exist ServerConnect.exp del ServerConnect.exp
+    if exist resource.res del resource.res
+    if exist ConnectPatch.lib del ConnectPatch.lib
+    if exist ConnectPatch.exp del ConnectPatch.exp
+    echo.
+    echo =======================================================
+    echo [SUCCESS] ConnectPatch.asi compiled successfully!
+    echo =======================================================
 ) else (
     echo.
-    echo [ПОМИЛКА] Збiрка завершилась невдало. Перевiрте логи вище.
+    echo [ERROR] Compilation failed. Check errors above.
 )
-pause
+
+:end
+echo.
+echo Press any key to exit...
+pause >nul
