@@ -11,15 +11,24 @@ if exist "C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\VC\Auxil
     call "C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\VC\Auxiliary\Build\vcvars32.bat"
     goto compile
 )
-echo [ОШИБКА] Компилятор cl.exe не найден. Установите Visual Studio C++.
+echo [ПОМИЛКА] Компилятор cl.exe не знайдено. Установiть Visual Studio C++.
 pause
 exit
 
 :compile
-echo Компиляция ServerConnect.asi...
-cl.exe /LD /O2 /EHsc main.cpp /link /OUT:ServerConnect.asi
+echo Компиляцiя ServerConnect.asi...
+rem Додано прапори /D_CRT_SECURE_NO_WARNINGS для відключення суворих попереджень розробника
+cl.exe /LD /O2 /EHsc /D_CRT_SECURE_NO_WARNINGS main.cpp /link /OUT:ServerConnect.asi
+
 if exist ServerConnect.asi (
-    echo [УСПЕХ] Сборка плагина успешно завершена!
-    del main.obj ServerConnect.lib ServerConnect.exp
+    echo.
+    echo [УСПЕХ] Сборка плагина ServerConnect.asi устiшно завершена!
+    rem Очищення тимчасового сміття компілятора
+    if exist main.obj del main.obj
+    if exist ServerConnect.lib del ServerConnect.lib
+    if exist ServerConnect.exp del ServerConnect.exp
+) else (
+    echo.
+    echo [ПОМИЛКА] Збiрка завершилась невдало. Перевiрте логи вище.
 )
 pause
