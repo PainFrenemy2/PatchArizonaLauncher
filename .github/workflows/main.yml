@@ -1,0 +1,30 @@
+name: Build ASI Plugin
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup MSVC Compiler
+      uses: ilammy/msvc-dev-cmd@v1
+      with:
+        arch: x86
+
+    - name: Compile ASI Plugin
+      run: |
+        cl.exe /LD /O2 /EHsc main.cpp /link /OUT:ServerConnect.asi
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: Compiled-ASI-Plugin
+        path: ServerConnect.asi
