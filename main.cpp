@@ -9,7 +9,7 @@
 #pragma comment(lib, "ws2_32.lib")
 
 // --- НАСТРОЙКА ВАШЕГО IP И ПОРТА НАМЕРТВО ---
-const char* TARGET_SERVER_IP = "91.215.87.204"; 
+const char* TARGET_SERVER_IP = "192.168.0.139"; 
 const int TARGET_SERVER_PORT = 7777;
 
 // Структура для получения информации о модуле в памяти
