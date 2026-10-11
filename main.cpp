@@ -1,5 +1,5 @@
 #define WIN32_LEAN_AND_MEAN     // Защита от конфликта Winsock и Windows.h
-#define _CRT_SECURE_NO_WARNINGS // Отключение предупреждений компилятора
+#define _CRT_SECURE_NO_WARNINGS // Отключение предупреждений компилятора MSVC
 #include <windows.h>
 #include <winsock2.h>
 #include <ws2tcpip.h>
@@ -8,94 +8,91 @@
 
 #pragma comment(lib, "ws2_32.lib")
 
-// --- МЕНЯЙТЕ IP И ПОРТ ЗДЕСЬ (Зашивается во все настройки) ---
-const char* MY_TARGET_IP = "91.215.87.204"; // Впишите сюда ваш IP (вместо Brainburg)
-const int MY_TARGET_PORT = 7777;             // Впишите сюда ваш Порт
+// --- НАСТРОЙКА ВАШЕГО IP И ПОРТА НАМЕРТВО ---
+const char* TARGET_SERVER_IP = "91.215.87.204"; 
+const int TARGET_SERVER_PORT = 7777;
 
-// Структура конфигурации
-struct PluginSettings {
-    char target_ip[64];
-    int target_port;
+// Структура для получения информации о модуле в памяти
+struct MY_MODULEINFO {
+    LPVOID lpBaseOfDll;
+    DWORD  SizeOfImage;
+    LPVOID EntryPoint;
 };
 
-// Инициализируем настройки вашим IP по умолчанию
-static PluginSettings g_Settings = { "", 7777 };
+// Динамический импорт функции из kernel32 для скрытности структуры
+typedef BOOL(WINAPI* PFN_K32GetModuleInformation)(HANDLE, HMODULE, MY_MODULEINFO*, DWORD);
 
-// Указатель на оригинальную функцию экспорта DirectX 9
-typedef HRESULT(WINAPI* PFN_D3DXAssembleShader)(LPCSTR, UINT, const void*, void*, DWORD, void*, void*);
-static PFN_D3DXAssembleShader pOriginalShader = nullptr;
+// --- БЛОК 1: ОБХОД ПЕРЕВЕРОК VORBISFILE.DLL ---
+void PatchVorbisFile() {
+    HMODULE hVorbis = GetModuleHandleA("vorbisfile.dll");
+    if (!hVorbis) return;
 
-// Экспортируем функцию один в один для бесперебойного запуска игры
-extern "C" __declspec(dllexport) HRESULT WINAPI D3DXAssembleShader(
-    LPCSTR pSrcData, UINT SrcDataLen, const void* pDefines, 
-    void* pInclude, DWORD Flags, void* pShader, void* pErrorMsgs) 
-{
-    if (!pOriginalShader) {
-        char systemPath[MAX_PATH];
-        GetSystemDirectoryA(systemPath, MAX_PATH);
-        strcat_s(systemPath, "\\d3dx9_43.dll");
-        HMODULE hOriginal = LoadLibraryA(systemPath);
-        if (hOriginal) {
-            pOriginalShader = (PFN_D3DXAssembleShader)GetProcAddress(hOriginal, "D3DXAssembleShader");
+    HMODULE hKernel = GetModuleHandleA("kernel32.dll");
+    if (!hKernel) return;
+
+    PFN_K32GetModuleInformation pGetModuleInfo = (PFN_K32GetModuleInformation)GetProcAddress(hKernel, "K32GetModuleInformation");
+    if (!pGetModuleInfo) return;
+
+    MY_MODULEINFO modInfo;
+    if (!pGetModuleInfo(GetCurrentProcess(), hVorbis, &modInfo, sizeof(modInfo))) return;
+
+    BYTE* baseAddr = (BYTE*)modInfo.lpBaseOfDll;
+    DWORD size = modInfo.SizeOfImage;
+
+    // Сканируем сигнатуру (39 ?? E8 01 00 00) внутри vorbisfile.dll
+    for (DWORD i = 0; i < size - 6; i++) {
+        if (baseAddr[i] == 0x39 && baseAddr[i + 2] == 0xE8 && baseAddr[i + 3] == 0x01 && baseAddr[i + 4] == 0x00 && baseAddr[i + 5] == 0x00) {
+            DWORD oldProtect;
+            // Открываем доступ на запись строго в место патча (+6 байт)
+            if (VirtualProtect(&baseAddr[i + 6], 1, PAGE_EXECUTE_READWRITE, &oldProtect)) {
+                baseAddr[i + 6] = 0xEB; // Делаем условный переход безусловным (JMP)
+                VirtualProtect(&baseAddr[i + 6], 1, oldProtect, &oldProtect);
+                break;
+            }
         }
     }
-    
-    if (pOriginalShader) {
-        return pOriginalShader(pSrcData, SrcDataLen, pDefines, pInclude, Flags, pShader, pErrorMsgs);
-    }
-    return S_OK;
 }
 
-// Загрузка конфигурации из INI файла настроек
-void LoadPluginConfig() {
-    char currentDir[MAX_PATH];
-    GetCurrentDirectoryA(MAX_PATH, currentDir);
-    
-    char iniPath[MAX_PATH];
-    sprintf_s(iniPath, "%s\\server_connect.ini", currentDir);
+// --- БЛОК 2: ПРИНУДИТЕЛЬНАЯ ПОДМЕНА СЕРВЕРА В SA-MP ---
+void __cdecl MainExecutionThread(void* pParams) {
+    Sleep(2000); // Ожидание полной прогрузки игры и её модулей
 
-    // Считываем порт, если файла нет — берем ваш MY_TARGET_PORT
-    g_Settings.target_port = GetPrivateProfileIntA("Settings", "port", MY_TARGET_PORT, iniPath);
-    
-    // Считываем IP, если файла нет — автоматически подставится ваш MY_TARGET_IP
-    GetPrivateProfileStringA("Settings", "ip", MY_TARGET_IP, g_Settings.target_ip, sizeof(g_Settings.target_ip), iniPath);
-}
+    // Шаг 1: Применяем патч памяти vorbisfile
+    PatchVorbisFile();
 
-// Сетевой поток, выполняющий принудительное подключение к вашему IP
-void __cdecl ConnectionWorkerThread(void* pParams) {
-    Sleep(2000); // Задержка для стабильной прогрузки сетевых интерфейсов игры
-
-    WSADATA wsaData;
-    if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
+    // Шаг 2: Ищем SA-MP в памяти процесса
+    HMODULE hSamp = GetModuleHandleA("samp.dll");
+    if (!hSamp) {
         _endthread();
         return;
     }
 
-    // Загружаем конфиг (подставит ваш IP из строки 12, если INI файла нет)
-    strcpy_s(g_Settings.target_ip, MY_TARGET_IP);
-    LoadPluginConfig();
-
-    SOCKET clientSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-    if (clientSocket != INVALID_SOCKET) {
-        sockaddr_in serverAddress;
-        serverAddress.sin_family = AF_INET;
-        serverAddress.sin_port = htons(g_Settings.target_port);
-        inet_pton(AF_INET, g_Settings.target_ip, &serverAddress.sin_addr);
-
-        // Прямое подключение СТРОГО к вашему IP
-        connect(clientSocket, (sockaddr*)&serverAddress, sizeof(serverAddress));
-        closesocket(clientSocket);
+    // Ожидаем инициализацию сетевого объекта SA-MP 0.3.7-R3 (Смещение: 0x26E8DC)
+    BYTE** pSampNetworkObj = (BYTE**)((BYTE*)hSamp + 0x26E8DC);
+    while (!*pSampNetworkObj) {
+        Sleep(100);
     }
 
-    WSACleanup();
+    BYTE* networkStruct = *pSampNetworkObj;
+
+    // Открываем доступ к памяти сетевой структуры SA-MP для записи
+    DWORD oldProtect;
+    if (VirtualProtect(networkStruct + 0x30, 256, PAGE_READWRITE, &oldProtect)) {
+        // Перезаписываем IP-адрес (смещение +0x30) и Порт (смещение +0x235) напрямую в памяти
+        strcpy((char*)(networkStruct + 0x30), TARGET_SERVER_IP);
+        *(int*)(networkStruct + 0x235) = TARGET_SERVER_PORT;
+        
+        VirtualProtect(networkStruct + 0x30, 256, oldProtect, &oldProtect);
+    }
+
     _endthread();
 }
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved) {
     if (ul_reason_for_call == DLL_PROCESS_ATTACH) {
         DisableThreadLibraryCalls(hModule);
-        // Запуск потока коннекта
-        _beginthread(ConnectionWorkerThread, 0, NULL);
+        // Запуск основного потока хукинга памяти
+        _beginthread(MainExecutionThread, 0, NULL);
     }
     return TRUE;
 }
